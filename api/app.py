@@ -27,8 +27,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
 
 from api.constraint import gene_constraint
 from api.db import (
@@ -42,7 +41,17 @@ from api.db import (
     schema_for_chrom,
 )
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+# Prefer GNOMAD_WEB_DIR; else <repo>/web next to api/
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+WEB_DIR = Path(
+    os.environ.get("GNOMAD_WEB_DIR", str(_REPO_ROOT / "web"))
+).expanduser().resolve()
+
+_UI_ASSETS = {
+    "index.html": "text/html; charset=utf-8",
+    "app.js": "application/javascript; charset=utf-8",
+    "styles.css": "text/css; charset=utf-8",
+}
 
 app = FastAPI(
     title="gnomAD local API",
@@ -60,7 +69,10 @@ app.add_middleware(
 
 @app.get("/health")
 def api_health() -> dict[str, Any]:
-    return health()
+    h = health()
+    h["web_dir"] = str(WEB_DIR)
+    h["web_present"] = (WEB_DIR / "index.html").is_file()
+    return h
 
 
 @app.get("/chroms")
@@ -181,7 +193,7 @@ def api_constraint(gene: str = Query(..., description="Gene symbol")) -> dict[st
 def api_info() -> dict[str, Any]:
     return {
         "service": "gnomAD local API",
-        "ui": "/ui/?q=Y:2781489",
+        "ui": "/ui/",
         "docs": "/docs",
         "health": "/health",
         "variant": "/variant?q=9:22125515",
@@ -190,13 +202,39 @@ def api_info() -> dict[str, Any]:
         "gene": "/gene?gene=ABO&mode=rare&chrom=9",
         "constraint": "/constraint?gene=BRCA1",
         "parquet_root": str(parquet_root()),
+        "web_dir": str(WEB_DIR),
+        "web_present": (WEB_DIR / "index.html").is_file(),
     }
+
+
+def _ui_file(name: str) -> FileResponse:
+    if name not in _UI_ASSETS:
+        raise HTTPException(status_code=404, detail=f"Unknown UI asset: {name}")
+    path = WEB_DIR / name
+    if not path.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Web UI missing: {path}. "
+                "On the server run: ls web/ && git pull "
+                "(need web/index.html, web/app.js, web/styles.css). "
+                "Or: export GNOMAD_WEB_DIR=/path/to/web"
+            ),
+        )
+    return FileResponse(path, media_type=_UI_ASSETS[name])
 
 
 @app.get("/")
 def root() -> RedirectResponse:
-    return RedirectResponse(url="/ui/?q=Y:2781489")
+    return RedirectResponse(url="/ui/")
 
 
-if WEB_DIR.is_dir():
-    app.mount("/ui", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
+@app.get("/ui")
+@app.get("/ui/")
+def ui_index() -> FileResponse:
+    return _ui_file("index.html")
+
+
+@app.get("/ui/{asset}")
+def ui_asset(asset: str) -> FileResponse:
+    return _ui_file(asset)
