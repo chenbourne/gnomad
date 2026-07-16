@@ -19,7 +19,7 @@ description: >-
 |------|-----|--------|
 | **API (default)** | `http://10.221.12.63:8923` | Parquet on server; currently **chrY** (+ more as exported) |
 | Local demo | `--local` → `var19.txt` | chr19 sample only |
-| Gene constraint | `/constraint` | Needs `gnomad.v4.1.constraint_metrics.tsv` on server |
+| Gene constraint | `/constraint` | Uses `gnomad.v4.1.constraint_metrics.tsv.gz` in repo (or server path) |
 
 Override API: `export GNOMAD_API_BASE=...` or `--api URL`.
 

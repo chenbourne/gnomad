@@ -52,11 +52,14 @@ uvicorn api.app:app --host 0.0.0.0 --port 8088
 
 ## Constraint file (optional, for /constraint)
 
+Repo includes `gnomad.v4.1.constraint_metrics.tsv.gz` (~17MB). The API auto-finds it
+(repo root, or `/data/agent/gnomad/data/…`, or `GNOMAD_CONSTRAINT_TSV`).
+
+On the API server after `git pull`, restart uvicorn — no separate download needed.
+Override path if desired:
+
 ```bash
-# on the API server
-curl -L -o /data/agent/gnomad/data/gnomad.v4.1.constraint_metrics.tsv \
-  'https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/constraint/gnomad.v4.1.constraint_metrics.tsv'
-# or: export GNOMAD_CONSTRAINT_TSV=/path/to/file.tsv
+export GNOMAD_CONSTRAINT_TSV=/path/to/gnomad.v4.1.constraint_metrics.tsv.gz
 ```
 
 ## Web UI
