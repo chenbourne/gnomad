@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.DS_Store
+*.egg-info/
+.pytest_cache/
+*.pptx
+# parquet partitions stay on the server under /data/agent/gnomad/data
+parquet/
+*.tsv.bgz
+*.ht/
