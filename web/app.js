@@ -204,8 +204,14 @@ async function fetchJson(path) {
   const res = await fetch(url);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const detail = data.detail || res.statusText;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const err = new Error(
+      typeof data.detail === "string"
+        ? data.detail
+        : (data.detail && data.detail.message) || res.statusText
+    );
+    err.status = res.status;
+    err.detail = data.detail;
+    throw err;
   }
   return data;
 }
@@ -223,27 +229,66 @@ async function loadHealth() {
   }
 }
 
-function renderNearbyList(query, variants, message) {
+function parseLocusQuery(q) {
+  const m = String(q).trim().match(/^(?:chr)?([0-9]+|X|Y|MT|M):(\d+)$/i);
+  if (!m) return null;
+  return { chrom: m[1], pos: parseInt(m[2], 10) };
+}
+
+function renderNotFound(query, detail) {
+  const locus = parseLocusQuery(query);
+  const msg =
+    (detail && typeof detail === "object" && detail.message) ||
+    (typeof detail === "string" ? detail : null) ||
+    `No variant found for ${query}.`;
+  const chrom = (locus && locus.chrom) || (detail && detail.chrom);
+  const pos = (locus && locus.pos) || (detail && detail.pos);
+  const canNearby = chrom != null && pos != null;
+  const actions = canNearby
+    ? `
+      <p style="margin-top:0.75rem">
+        <button type="button" class="tab" id="btn-nearby"
+          data-chrom="${escapeHtml(String(chrom))}" data-pos="${pos}">
+          Browse nearby ±1 kb
+        </button>
+      </p>
+      <p class="section-note" style="margin-top:0.5rem">
+        Prefer a full variant ID (e.g. <code>Y-2781489-C-T</code>) or rsID — same as gnomAD.org.
+      </p>`
+    : `<p class="section-note" style="margin-top:0.75rem">
+        Try a full variant ID or rsID.
+      </p>`;
+  return `
+    <div class="error">
+      <strong>Variant not found</strong>
+      <p style="margin:0.5rem 0 0;font-weight:400;color:inherit">${escapeHtml(msg)}</p>
+      ${actions}
+    </div>
+    <div id="nearby-panel"></div>
+  `;
+}
+
+function renderNearbyTable(chrom, pos, variants) {
+  if (!variants.length) {
+    return `<p class="section-note">No variants within ±1 kb of chr${escapeHtml(chrom)}:${pos}.</p>`;
+  }
   const rows = variants
     .map((v) => {
       const alleles = v.alleles || [];
       const ref = alleles[0] || "?";
       const alt = alleles[1] || "?";
-      const af = v.joint_af != null ? fmtAf(v.joint_af) : "—";
       return `<tr class="click-row" data-q="${escapeHtml(v.variant_id)}" style="cursor:pointer">
         <td class="num">${fmtInt(v.pos)}</td>
         <td><code>${escapeHtml(v.variant_id)}</code></td>
         <td>${escapeHtml(ref)}&gt;${escapeHtml(alt)}</td>
-        <td class="num">${af}</td>
+        <td class="num">${fmtAf(v.joint_af)}</td>
         <td class="num">${fmtScore(v.cadd_phred)}</td>
       </tr>`;
     })
     .join("");
   return `
-    <div class="notice">
-      <strong>No exact hit for ${escapeHtml(query)}</strong>
-      <p>${escapeHtml(message || "Nearby variants in ±1 kb:")}</p>
-    </div>
+    <h2 class="section-title">Nearby variants (±1 kb)</h2>
+    <p class="section-note">Optional region browse — not the default gnomAD search result.</p>
     <div class="table-wrap">
       <table>
         <thead>
@@ -257,15 +302,13 @@ function renderNearbyList(query, variants, message) {
         </thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>
-    <p class="section-note">Click a row to open that variant. gnomAD only stores observed alternate alleles — not every base.</p>
-  `;
+    </div>`;
 }
 
 async function loadVariant(query, meta) {
   const page = $("#page");
   if (!query) {
-    page.innerHTML = `<p class="hint">Search a variant (e.g. Y:2781489). Current API has chrom=Y.</p>`;
+    page.innerHTML = `<p class="hint">Search a variant ID or rsID (e.g. Y-2781489-C-T). Current API has chrom=Y.</p>`;
     return;
   }
   page.innerHTML = `<p class="hint">Loading ${escapeHtml(query)}…</p>`;
@@ -273,25 +316,7 @@ async function loadVariant(query, meta) {
     const data = await fetchJson(`/variant?q=${encodeURIComponent(query)}`);
     const hits = data.variants || [];
     if (!hits.length) {
-      page.innerHTML = `<div class="error">No match for <strong>${escapeHtml(query)}</strong>.</div>`;
-      return;
-    }
-
-    // Exact chrom:pos miss → nearby list
-    if (data.exact === false) {
-      page.innerHTML = renderNearbyList(query, hits, data.message);
-      page.querySelectorAll(".click-row").forEach((row) => {
-        row.addEventListener("click", () => {
-          const next = row.dataset.q;
-          const input = $("#q");
-          input.value = next;
-          const params = new URLSearchParams(location.search);
-          params.set("q", next);
-          history.pushState(null, "", `${location.pathname}?${params}`);
-          loadVariant(next, meta);
-        });
-      });
-      document.title = `${query} · nearby · gnomAD`;
+      page.innerHTML = renderNotFound(query, { message: "No match." });
       return;
     }
 
@@ -321,7 +346,34 @@ async function loadVariant(query, meta) {
       panel.innerHTML = renderAncestry((v.ancestry && v.ancestry[btn.dataset.slice]) || []);
     });
   } catch (err) {
-    page.innerHTML = `<div class="error">${escapeHtml(err.message)}</div>`;
+    page.innerHTML = renderNotFound(query, err.detail);
+    document.title = "Not found · gnomAD";
+
+    $("#btn-nearby")?.addEventListener("click", async () => {
+      const btn = $("#btn-nearby");
+      const chrom = btn.dataset.chrom;
+      const pos = btn.dataset.pos;
+      const panel = $("#nearby-panel");
+      panel.innerHTML = `<p class="hint">Loading nearby…</p>`;
+      try {
+        const data = await fetchJson(
+          `/locus?chrom=${encodeURIComponent(chrom)}&pos=${encodeURIComponent(pos)}&window_kb=1&limit=20`
+        );
+        panel.innerHTML = renderNearbyTable(chrom, pos, data.variants || []);
+        panel.querySelectorAll(".click-row").forEach((row) => {
+          row.addEventListener("click", () => {
+            const next = row.dataset.q;
+            $("#q").value = next;
+            const params = new URLSearchParams(location.search);
+            params.set("q", next);
+            history.pushState(null, "", `${location.pathname}?${params}`);
+            loadVariant(next, meta);
+          });
+        });
+      } catch (e2) {
+        panel.innerHTML = `<div class="error">${escapeHtml(e2.message)}</div>`;
+      }
+    });
   }
 }
 

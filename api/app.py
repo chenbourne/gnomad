@@ -81,16 +81,22 @@ def api_variant(q: str = Query(..., description="rsID | Y-2781489-C-T | Y:278148
 
     hits = result.get("variants") or []
     if not hits:
+        # gnomAD-style: absent site → 404 with clear message (+ optional locus hint)
         raise HTTPException(
             status_code=404,
-            detail=result.get("message") or f"not found: {q}",
+            detail={
+                "message": result.get("message") or f"Variant not found: {q}",
+                "query": q,
+                "chrom": result.get("chrom"),
+                "pos": result.get("pos"),
+                "suggest_locus": bool(result.get("pos") is not None and result.get("chrom")),
+            },
         )
     return {
         "ok": True,
         "query": q,
-        "exact": result.get("exact", True),
+        "exact": True,
         "n_hits": len(hits),
-        "message": result.get("message"),
         "variants": hits,
     }
 

@@ -380,12 +380,12 @@ def _fetch(con: duckdb.DuckDBPyConnection, sql: str, params: Optional[list[Any]]
 
 def lookup_variant(q: str, root: Optional[Path] = None) -> dict[str, Any]:
     """
-    Look up by rsID / variant_id / chrom:pos.
+    Look up by rsID / variant_id / chrom:pos (exact only, gnomAD-browser style).
 
     Returns dict:
-      exact: True if exact hit(s)
+      exact: True if hit(s)
       variants: list of enriched rows
-      message: optional note when falling back to nearby window
+      message: optional note when empty
     """
     spec = parse_query(q)
     con = connect()
@@ -406,7 +406,12 @@ def lookup_variant(q: str, root: Optional[Path] = None) -> dict[str, Any]:
         sql = f"SELECT * FROM ({inner}) t WHERE list_contains(rsids, ?) LIMIT 20"
         params.append(spec["rsid"])
         hits = _fetch(con, sql, params)
-        return {"exact": bool(hits), "variants": hits, "query": q}
+        return {
+            "exact": bool(hits),
+            "variants": hits,
+            "query": q,
+            "message": None if hits else f"Variant not found for {q}",
+        }
 
     chrom = spec["chrom"]
     glob = chrom_glob(chrom, root)
@@ -421,9 +426,14 @@ def lookup_variant(q: str, root: Optional[Path] = None) -> dict[str, Any]:
           LIMIT 20
         """
         hits = _fetch(con, sql, [glob, vid, f"chr{vid}"])
-        return {"exact": bool(hits), "variants": hits, "query": q}
+        return {
+            "exact": bool(hits),
+            "variants": hits,
+            "query": q,
+            "message": None if hits else f"Variant not found: {vid}",
+        }
 
-    # chrom:pos — exact first, then nearby ±1 kb
+    # chrom:pos — exact position only (like gnomAD: a site without an alt is absent)
     sql = f"""
       SELECT {sel}
       FROM read_parquet(?)
@@ -431,24 +441,20 @@ def lookup_variant(q: str, root: Optional[Path] = None) -> dict[str, Any]:
       LIMIT 50
     """
     hits = _fetch(con, sql, [glob, spec["pos"]])
+    c = normalize_chrom(chrom)
     if hits:
         return {"exact": True, "variants": hits, "query": q, "pos": spec["pos"]}
-
-    nearby = locus_query(
-        chrom, spec["pos"], window_bp=1_000, limit=20, root=root
-    )
-    # sort by distance to query pos
-    nearby.sort(key=lambda v: abs((v.get("pos") or 0) - spec["pos"]))
     return {
         "exact": False,
-        "variants": nearby,
+        "variants": [],
         "query": q,
         "pos": spec["pos"],
+        "chrom": c,
         "message": (
-            f"No variant at chr{normalize_chrom(chrom)}:{spec['pos']}; "
-            f"showing {len(nearby)} nearby within ±1 kb"
-            if nearby
-            else f"No variant at chr{normalize_chrom(chrom)}:{spec['pos']} (±1 kb empty)"
+            f"No variant found at chr{c}:{spec['pos']}. "
+            "gnomAD only includes positions with an observed alternate allele. "
+            "Try a full variant ID (e.g. Y-2781489-C-T), an rsID, "
+            "or browse nearby with /locus."
         ),
     }
 
