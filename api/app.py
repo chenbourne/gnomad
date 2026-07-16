@@ -11,13 +11,13 @@ Run on the machine that has the parquet:
   python3 -m venv .venv && source .venv/bin/activate
   pip install -r api/requirements.txt
   # optional: export GNOMAD_PARQUET_ROOT=/data/agent/gnomad/data
-  uvicorn api.app:app --host 0.0.0.0 --port 8088
+  uvicorn api.app:app --host 0.0.0.0 --port 8923
   # or: bash api/start.sh
 
 Examples:
-  curl http://127.0.0.1:8088/health
-  curl 'http://127.0.0.1:8088/variant?q=Y:2781489'
-  curl 'http://127.0.0.1:8088/locus?chrom=Y&pos=2781489&window_kb=10'
+  curl http://127.0.0.1:8923/health
+  curl 'http://127.0.0.1:8923/variant?q=Y:2781489'
+  curl 'http://127.0.0.1:8923/locus?chrom=Y&pos=2781489&window_kb=10'
 """
 from __future__ import annotations
 

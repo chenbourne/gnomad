@@ -8,7 +8,7 @@ cd "$ROOT"
 PYTHON="${PYTHON:-python3}"
 VENV="${VENV:-$ROOT/.venv}"
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8088}"
+PORT="${PORT:-8923}"
 export GNOMAD_PARQUET_ROOT="${GNOMAD_PARQUET_ROOT:-/data/agent/gnomad/data}"
 
 if [[ ! -d "$VENV" ]]; then

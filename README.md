@@ -35,7 +35,7 @@ pip install -U pip
 pip install -r api/requirements.txt
 
 # 3) start API
-uvicorn api.app:app --host 0.0.0.0 --port 8088
+uvicorn api.app:app --host 0.0.0.0 --port 8923
 ```
 
 Or one-shot helper:
@@ -49,7 +49,7 @@ Later sessions:
 ```bash
 cd gnomad
 source .venv/bin/activate
-uvicorn api.app:app --host 0.0.0.0 --port 8088
+uvicorn api.app:app --host 0.0.0.0 --port 8923
 ```
 
 ## Constraint file (optional, for /constraint)
@@ -82,17 +82,17 @@ python .cursor/skills/ckb-gnomad/scripts/serve_web.py
 ## Endpoints
 
 ```bash
-curl http://127.0.0.1:8088/health
-curl http://127.0.0.1:8088/chroms
-curl 'http://127.0.0.1:8088/variant?q=9:22125515'
-curl 'http://127.0.0.1:8088/locus?chrom=9&pos=22125515&window_kb=10'
-curl 'http://127.0.0.1:8088/locus?chrom=Y&pos=2781489&window_kb=10'
-curl 'http://127.0.0.1:8088/batch?rsids=rs1,rs2'
-curl 'http://127.0.0.1:8088/gene?gene=ABO&mode=rare&chrom=9'
-curl 'http://127.0.0.1:8088/constraint?gene=BRCA1'
+curl http://127.0.0.1:8923/health
+curl http://127.0.0.1:8923/chroms
+curl 'http://127.0.0.1:8923/variant?q=9:22125515'
+curl 'http://127.0.0.1:8923/locus?chrom=9&pos=22125515&window_kb=10'
+curl 'http://127.0.0.1:8923/locus?chrom=Y&pos=2781489&window_kb=10'
+curl 'http://127.0.0.1:8923/batch?rsids=rs1,rs2'
+curl 'http://127.0.0.1:8923/gene?gene=ABO&mode=rare&chrom=9'
+curl 'http://127.0.0.1:8923/constraint?gene=BRCA1'
 ```
 
-Docs: `http://127.0.0.1:8088/docs`
+Docs: `http://127.0.0.1:8923/docs`
 
 ## Cursor skill (API client)
 
