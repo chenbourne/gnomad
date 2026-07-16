@@ -50,6 +50,15 @@ source .venv/bin/activate
 uvicorn api.app:app --host 0.0.0.0 --port 8088
 ```
 
+## Constraint file (optional, for /constraint)
+
+```bash
+# on the API server
+curl -L -o /data/agent/gnomad/data/gnomad.v4.1.constraint_metrics.tsv \
+  'https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/constraint/gnomad.v4.1.constraint_metrics.tsv'
+# or: export GNOMAD_CONSTRAINT_TSV=/path/to/file.tsv
+```
+
 ## Web UI
 
 After restart, open:
@@ -74,6 +83,9 @@ curl http://127.0.0.1:8088/health
 curl http://127.0.0.1:8088/chroms
 curl 'http://127.0.0.1:8088/variant?q=Y:2781489'
 curl 'http://127.0.0.1:8088/locus?chrom=Y&pos=2781489&window_kb=10'
+curl 'http://127.0.0.1:8088/batch?rsids=rs1,rs2'
+curl 'http://127.0.0.1:8088/gene?gene=SRY&mode=rare&chrom=Y'
+curl 'http://127.0.0.1:8088/constraint?gene=BRCA1'
 ```
 
 Docs: `http://127.0.0.1:8088/docs`
@@ -86,6 +98,9 @@ Default API base: `http://10.221.12.63:8923` (override with `GNOMAD_API_BASE` / 
 python .cursor/skills/ckb-gnomad/scripts/summary.py
 python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 'Y:2781489'
 python .cursor/skills/ckb-gnomad/scripts/locus_query.py --chr Y --pos 2781489 --window-kb 10
+python .cursor/skills/ckb-gnomad/scripts/batch_lookup.py rs123 rs456
+python .cursor/skills/ckb-gnomad/scripts/gene_variants.py -g SRY --mode rare --chrom Y
+python .cursor/skills/ckb-gnomad/scripts/constraint.py BRCA1
 # local demo sample:
 python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py rs429358 --local
 ```

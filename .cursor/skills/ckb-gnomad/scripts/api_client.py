@@ -66,17 +66,28 @@ def variant(q: str, base: str | None = None) -> dict[str, Any]:
     return _get(f"{api_base(base)}/variant?{qs}")
 
 
-def locus(
-    chrom: str,
-    pos: int,
-    window_kb: float = 50.0,
+def batch(rsids: list[str], base: str | None = None) -> dict[str, Any]:
+    qs = urllib.parse.urlencode({"rsids": ",".join(rsids)})
+    return _get(f"{api_base(base)}/batch?{qs}")
+
+
+def gene(
+    gene_symbol: str,
+    mode: str = "all",
+    chrom: str | None = None,
     limit: int = 50,
     base: str | None = None,
 ) -> dict[str, Any]:
-    qs = urllib.parse.urlencode(
-        {"chrom": chrom, "pos": pos, "window_kb": window_kb, "limit": limit}
-    )
-    return _get(f"{api_base(base)}/locus?{qs}")
+    params: dict[str, Any] = {"gene": gene_symbol, "mode": mode, "limit": limit}
+    if chrom:
+        params["chrom"] = chrom
+    qs = urllib.parse.urlencode(params)
+    return _get(f"{api_base(base)}/gene?{qs}")
+
+
+def constraint(gene_symbol: str, base: str | None = None) -> dict[str, Any]:
+    qs = urllib.parse.urlencode({"gene": gene_symbol})
+    return _get(f"{api_base(base)}/constraint?{qs}")
 
 
 def fmt_af(af: float | None) -> str:
@@ -153,6 +164,8 @@ def print_api_variant(v: dict[str, Any]) -> None:
         f"REVEL={fmt_score(pred.get('revel_max') or v.get('revel_max'))}  "
         f"SpliceAI={fmt_score(pred.get('spliceai_ds_max') or v.get('spliceai_ds_max'))}"
     )
+    if v.get("interpretation"):
+        print(f"interpret:   {v['interpretation']}")
     print_summary_table(v.get("summary"))
     anc = v.get("ancestry") or {}
     for slice_name, title in (

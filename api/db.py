@@ -11,6 +11,7 @@ from typing import Any, Optional
 import duckdb
 
 from api.ancestry import af, parse_ancestry_groups
+from api.interpret import LOF_CONSEQUENCES, best_af, interpret_af
 
 DEFAULT_PARQUET_ROOT = Path("/data/agent/gnomad/data")
 
@@ -365,6 +366,7 @@ def enrich_variant(d: dict[str, Any]) -> dict[str, Any]:
         "polyphen_max": d.get("polyphen_max"),
         "phylop": d.get("phylop"),
     }
+    d["interpretation"] = interpret_af(best_af(d))
     return d
 
 
@@ -481,6 +483,122 @@ def locus_query(
     return _fetch(con, sql, [glob, start, end, limit])
 
 
+def batch_lookup(rsids: list[str], root: Optional[Path] = None, max_n: int = 20) -> list[dict[str, Any]]:
+    """Look up multiple rsIDs (capped)."""
+    out = []
+    for rsid in rsids[:max_n]:
+        rsid = rsid.strip()
+        if not rsid:
+            continue
+        if not rsid.lower().startswith("rs"):
+            rsid = f"rs{rsid}"
+        try:
+            result = lookup_variant(rsid, root=root)
+            hits = result.get("variants") or []
+            out.append(
+                {
+                    "rsid": rsid.lower(),
+                    "found": bool(hits),
+                    "variant": hits[0] if hits else None,
+                    "interpretation": (hits[0].get("interpretation") if hits else interpret_af(None)),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            out.append({"rsid": rsid, "found": False, "error": str(exc)})
+    return out
+
+
+def gene_variants(
+    gene: str,
+    mode: str = "all",
+    chrom: Optional[str] = None,
+    limit: int = 50,
+    root: Optional[Path] = None,
+) -> dict[str, Any]:
+    """
+    Filter sites Parquet by gene_symbol in transcript_consequences.
+
+    mode: all | rare (AF<1% or absent) | common (AF>=1%) | lof | missense
+    chrom: optional; default = all available partitions (slow if many chroms)
+    """
+    gene_u = gene.strip().upper()
+    root = root or parquet_root()
+    chroms = [normalize_chrom(chrom)] if chrom else list_chroms(root)
+    if not chroms:
+        raise FileNotFoundError(f"No chrom=* under {root}")
+
+    con = connect()
+    unions = []
+    params: list[Any] = []
+    for c in chroms:
+        g = chrom_glob(c, root)
+        available = _columns_for_glob(g)
+        tc_col = _pick_col(
+            available,
+            ("transcript_consequences", "genome.vep115.transcript_consequences"),
+        )
+        if tc_col is None:
+            continue
+        sel = _select_sql(g)
+        # gene match via list_transform on struct.gene_symbol
+        unions.append(
+            f"""
+            SELECT {sel} FROM read_parquet(?)
+            WHERE list_contains(
+              list_transform({_quote_col(tc_col)}, x -> upper(x.gene_symbol)),
+              ?
+            )
+            """
+        )
+        params.extend([g, gene_u])
+
+    if not unions:
+        return {
+            "gene": gene,
+            "mode": mode,
+            "total_matched": 0,
+            "variants": [],
+            "message": "No transcript_consequences column in parquet",
+        }
+
+    inner = " UNION ALL ".join(f"({u})" for u in unions)
+    # Pull a larger pool then filter in Python for mode (AF / consequence)
+    sql = f"SELECT * FROM ({inner}) t LIMIT ?"
+    params.append(max(limit * 20, 500))
+    rows = _fetch(con, sql, params)
+
+    def _pass(v: dict[str, Any]) -> bool:
+        afv = best_af(v)
+        cons = (v.get("consequence") or "") or ""
+        if mode == "rare":
+            return afv is None or afv < 0.01
+        if mode == "common":
+            return afv is not None and afv >= 0.01
+        if mode == "lof":
+            return cons in LOF_CONSEQUENCES
+        if mode == "missense":
+            return cons == "missense_variant"
+        return True
+
+    filtered = [v for v in rows if _pass(v)]
+    if mode == "rare":
+        filtered.sort(key=lambda v: (best_af(v) is not None, best_af(v) if best_af(v) is not None else -1))
+    elif mode == "common":
+        filtered.sort(key=lambda v: -(best_af(v) or 0))
+    else:
+        filtered.sort(key=lambda v: (v.get("pos") or 0, v.get("variant_id") or ""))
+
+    return {
+        "gene": gene,
+        "mode": mode,
+        "chroms_searched": chroms,
+        "scanned_hits": len(rows),
+        "total_matched": len(filtered),
+        "returned": min(limit, len(filtered)),
+        "variants": filtered[:limit],
+    }
+
+
 def health(root: Optional[Path] = None) -> dict[str, Any]:
     root = root or parquet_root()
     chroms = list_chroms(root)
@@ -495,17 +613,25 @@ def health(root: Optional[Path] = None) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             ok = False
             err = str(exc)
+    from api.constraint import constraint_path
+
     out: dict[str, Any] = {
         "ok": ok,
         "parquet_root": str(root),
         "chroms": chroms,
         "chrY_variants": n,
         "dataset": "gnomAD browser v4.1.1 (local parquet)",
+        "constraint_tsv": str(constraint_path()),
+        "constraint_present": constraint_path().is_file(),
         "features": [
             "summary (exome/genome/joint)",
             "ancestry tables",
             "predictors",
             "transcript (when column present)",
+            "ACMG-style AF interpretation",
+            "batch rsID",
+            "gene filter (rare/common/lof/missense)",
+            "gene constraint (if TSV present)",
         ],
     }
     if err:

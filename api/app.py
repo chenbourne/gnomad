@@ -29,7 +29,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.db import health, list_chroms, locus_query, lookup_variant, parquet_root, schema_for_chrom
+from api.constraint import gene_constraint
+from api.db import (
+    batch_lookup,
+    gene_variants,
+    health,
+    list_chroms,
+    locus_query,
+    lookup_variant,
+    parquet_root,
+    schema_for_chrom,
+)
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 
@@ -124,6 +134,48 @@ def api_locus(
     }
 
 
+@app.get("/batch")
+def api_batch(
+    rsids: str = Query(..., description="Comma-separated rsIDs, max 20"),
+) -> dict[str, Any]:
+    ids = [x.strip() for x in rsids.replace(";", ",").split(",") if x.strip()]
+    if len(ids) > 20:
+        raise HTTPException(status_code=400, detail="max 20 rsIDs per batch")
+    try:
+        rows = batch_lookup(ids)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"ok": True, "n": len(rows), "records": rows}
+
+
+@app.get("/gene")
+def api_gene(
+    gene: str = Query(..., description="Gene symbol, e.g. SRY"),
+    mode: str = Query(
+        "all",
+        description="all | rare | common | lof | missense",
+        pattern="^(all|rare|common|lof|missense)$",
+    ),
+    chrom: Optional[str] = Query(None, description="Limit to chrom partition (e.g. Y)"),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    try:
+        result = gene_variants(gene, mode=mode, chrom=chrom, limit=limit)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"query failed: {exc}") from exc
+    return {"ok": True, **result}
+
+
+@app.get("/constraint")
+def api_constraint(gene: str = Query(..., description="Gene symbol")) -> dict[str, Any]:
+    result = gene_constraint(gene)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("message") or "not found")
+    return result
+
+
 @app.get("/api")
 def api_info() -> dict[str, Any]:
     return {
@@ -133,6 +185,9 @@ def api_info() -> dict[str, Any]:
         "health": "/health",
         "variant": "/variant?q=Y:2781489",
         "locus": "/locus?chrom=Y&pos=2781489&window_kb=10",
+        "batch": "/batch?rsids=rs1,rs2",
+        "gene": "/gene?gene=SRY&mode=rare&chrom=Y",
+        "constraint": "/constraint?gene=BRCA1",
         "parquet_root": str(parquet_root()),
     }
 

@@ -175,6 +175,7 @@ function renderVariant(v, meta) {
         </div>
         ${geneBits.length ? `<p class="gene-line">${geneBits.join(" · ")}</p>` : ""}
         ${predBits.length ? `<p class="gene-line">${predBits.join(" · ")}</p>` : ""}
+        ${v.interpretation ? `<p class="gene-line"><strong>Interpret:</strong> ${escapeHtml(v.interpretation)}</p>` : ""}
       </div>
       <div class="actions">
         <button type="button" id="copy-id">Copy variant ID</button>
