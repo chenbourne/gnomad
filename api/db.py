@@ -378,7 +378,15 @@ def _fetch(con: duckdb.DuckDBPyConnection, sql: str, params: Optional[list[Any]]
     return [row_to_dict(r, cols) for r in cur.fetchall()]
 
 
-def lookup_variant(q: str, root: Optional[Path] = None) -> list[dict[str, Any]]:
+def lookup_variant(q: str, root: Optional[Path] = None) -> dict[str, Any]:
+    """
+    Look up by rsID / variant_id / chrom:pos.
+
+    Returns dict:
+      exact: True if exact hit(s)
+      variants: list of enriched rows
+      message: optional note when falling back to nearby window
+    """
     spec = parse_query(q)
     con = connect()
     root = root or parquet_root()
@@ -397,7 +405,8 @@ def lookup_variant(q: str, root: Optional[Path] = None) -> list[dict[str, Any]]:
         inner = " UNION ALL ".join(f"({u})" for u in unions)
         sql = f"SELECT * FROM ({inner}) t WHERE list_contains(rsids, ?) LIMIT 20"
         params.append(spec["rsid"])
-        return _fetch(con, sql, params)
+        hits = _fetch(con, sql, params)
+        return {"exact": bool(hits), "variants": hits, "query": q}
 
     chrom = spec["chrom"]
     glob = chrom_glob(chrom, root)
@@ -411,15 +420,37 @@ def lookup_variant(q: str, root: Optional[Path] = None) -> list[dict[str, Any]]:
           WHERE variant_id = ? OR variant_id = ?
           LIMIT 20
         """
-        return _fetch(con, sql, [glob, vid, f"chr{vid}"])
+        hits = _fetch(con, sql, [glob, vid, f"chr{vid}"])
+        return {"exact": bool(hits), "variants": hits, "query": q}
 
+    # chrom:pos — exact first, then nearby ±1 kb
     sql = f"""
       SELECT {sel}
       FROM read_parquet(?)
       WHERE "locus.position" = ?
       LIMIT 50
     """
-    return _fetch(con, sql, [glob, spec["pos"]])
+    hits = _fetch(con, sql, [glob, spec["pos"]])
+    if hits:
+        return {"exact": True, "variants": hits, "query": q, "pos": spec["pos"]}
+
+    nearby = locus_query(
+        chrom, spec["pos"], window_bp=1_000, limit=20, root=root
+    )
+    # sort by distance to query pos
+    nearby.sort(key=lambda v: abs((v.get("pos") or 0) - spec["pos"]))
+    return {
+        "exact": False,
+        "variants": nearby,
+        "query": q,
+        "pos": spec["pos"],
+        "message": (
+            f"No variant at chr{normalize_chrom(chrom)}:{spec['pos']}; "
+            f"showing {len(nearby)} nearby within ±1 kb"
+            if nearby
+            else f"No variant at chr{normalize_chrom(chrom)}:{spec['pos']} (±1 kb empty)"
+        ),
+    }
 
 
 def locus_query(

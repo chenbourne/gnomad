@@ -115,10 +115,22 @@ def main() -> int:
             print(f"# API error ({base}): {exc}", file=sys.stderr)
             return 1
         hits = data.get("variants") or []
-        print(f"# query={args.query!r}  api={base}  hits={len(hits)}")
+        exact = data.get("exact", True)
+        print(f"# query={args.query!r}  api={base}  hits={len(hits)}  exact={exact}")
+        if data.get("message"):
+            print(f"# {data['message']}")
         if not hits:
             print("No match.")
             return 1
+        if exact is False:
+            print("pos\tvariant_id\tjoint_AF\tCADD")
+            for v in hits:
+                print(
+                    f"{v.get('pos')}\t{v.get('variant_id')}\t"
+                    f"{fmt_af(v.get('joint_af'))}\t{fmt_score(v.get('cadd_phred'))}"
+                )
+            print("# tip: pass a full variant_id (e.g. Y-2781489-C-T) for the detail view")
+            return 0
         for i, v in enumerate(hits):
             if i:
                 print("---")

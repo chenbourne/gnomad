@@ -238,6 +238,17 @@ td.row-label { font-weight: 600; color: var(--muted); width: 12rem; }
   border: 1px solid #f0c3c3;
 }
 
+.notice {
+  padding: 1rem 1.1rem;
+  border-radius: 0.65rem;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid #f0d9b0;
+  margin-bottom: 1rem;
+}
+.notice p { margin: 0.4rem 0 0; color: var(--ink); font-weight: 400; }
+.click-row:hover { background: #eef7f5; }
+
 .status-bar {
   margin-top: 1.5rem;
   padding-top: 1rem;

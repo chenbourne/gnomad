@@ -223,6 +223,45 @@ async function loadHealth() {
   }
 }
 
+function renderNearbyList(query, variants, message) {
+  const rows = variants
+    .map((v) => {
+      const alleles = v.alleles || [];
+      const ref = alleles[0] || "?";
+      const alt = alleles[1] || "?";
+      const af = v.joint_af != null ? fmtAf(v.joint_af) : "—";
+      return `<tr class="click-row" data-q="${escapeHtml(v.variant_id)}" style="cursor:pointer">
+        <td class="num">${fmtInt(v.pos)}</td>
+        <td><code>${escapeHtml(v.variant_id)}</code></td>
+        <td>${escapeHtml(ref)}&gt;${escapeHtml(alt)}</td>
+        <td class="num">${af}</td>
+        <td class="num">${fmtScore(v.cadd_phred)}</td>
+      </tr>`;
+    })
+    .join("");
+  return `
+    <div class="notice">
+      <strong>No exact hit for ${escapeHtml(query)}</strong>
+      <p>${escapeHtml(message || "Nearby variants in ±1 kb:")}</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="num">pos</th>
+            <th>variant_id</th>
+            <th>alleles</th>
+            <th class="num">joint AF</th>
+            <th class="num">CADD</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <p class="section-note">Click a row to open that variant. gnomAD only stores observed alternate alleles — not every base.</p>
+  `;
+}
+
 async function loadVariant(query, meta) {
   const page = $("#page");
   if (!query) {
@@ -232,11 +271,31 @@ async function loadVariant(query, meta) {
   page.innerHTML = `<p class="hint">Loading ${escapeHtml(query)}…</p>`;
   try {
     const data = await fetchJson(`/variant?q=${encodeURIComponent(query)}`);
-    const v = (data.variants || [])[0];
-    if (!v) {
+    const hits = data.variants || [];
+    if (!hits.length) {
       page.innerHTML = `<div class="error">No match for <strong>${escapeHtml(query)}</strong>.</div>`;
       return;
     }
+
+    // Exact chrom:pos miss → nearby list
+    if (data.exact === false) {
+      page.innerHTML = renderNearbyList(query, hits, data.message);
+      page.querySelectorAll(".click-row").forEach((row) => {
+        row.addEventListener("click", () => {
+          const next = row.dataset.q;
+          const input = $("#q");
+          input.value = next;
+          const params = new URLSearchParams(location.search);
+          params.set("q", next);
+          history.pushState(null, "", `${location.pathname}?${params}`);
+          loadVariant(next, meta);
+        });
+      });
+      document.title = `${query} · nearby · gnomAD`;
+      return;
+    }
+
+    const v = hits[0];
     page.innerHTML = renderVariant(v, meta || {});
     document.title = `${v.variant_id} · gnomAD`;
 
@@ -262,7 +321,7 @@ async function loadVariant(query, meta) {
       panel.innerHTML = renderAncestry((v.ancestry && v.ancestry[btn.dataset.slice]) || []);
     });
   } catch (err) {
-    page.innerHTML = `<div class="error">${escapeHtml(err.message)}<br><span style="opacity:.8">Try Y:2781489 — server currently has chrom=Y only.</span></div>`;
+    page.innerHTML = `<div class="error">${escapeHtml(err.message)}</div>`;
   }
 }
 

@@ -71,16 +71,28 @@ def api_schema(chrom: str = Query("Y", description="chrom partition to describe"
 @app.get("/variant")
 def api_variant(q: str = Query(..., description="rsID | Y-2781489-C-T | Y:2781489")) -> dict[str, Any]:
     try:
-        hits = lookup_variant(q)
+        result = lookup_variant(q)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"query failed: {exc}") from exc
+
+    hits = result.get("variants") or []
     if not hits:
-        raise HTTPException(status_code=404, detail=f"not found: {q}")
-    return {"ok": True, "query": q, "n_hits": len(hits), "variants": hits}
+        raise HTTPException(
+            status_code=404,
+            detail=result.get("message") or f"not found: {q}",
+        )
+    return {
+        "ok": True,
+        "query": q,
+        "exact": result.get("exact", True),
+        "n_hits": len(hits),
+        "message": result.get("message"),
+        "variants": hits,
+    }
 
 
 @app.get("/locus")
