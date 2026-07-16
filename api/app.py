@@ -3,6 +3,7 @@
 gnomAD local Parquet API (DuckDB).
 
 Data layout (Hive partitions from Spark):
+  $GNOMAD_PARQUET_ROOT/chrom=9/part-*.snappy.parquet
   $GNOMAD_PARQUET_ROOT/chrom=Y/part-*.snappy.parquet
   default root: /data/agent/gnomad/data
 
@@ -79,7 +80,7 @@ def api_schema(chrom: str = Query("Y", description="chrom partition to describe"
 
 
 @app.get("/variant")
-def api_variant(q: str = Query(..., description="rsID | Y-2781489-C-T | Y:2781489")) -> dict[str, Any]:
+def api_variant(q: str = Query(..., description="rsID | 9-123-A-G | chr9:123")) -> dict[str, Any]:
     try:
         result = lookup_variant(q)
     except FileNotFoundError as exc:
@@ -113,7 +114,7 @@ def api_variant(q: str = Query(..., description="rsID | Y-2781489-C-T | Y:278148
 
 @app.get("/locus")
 def api_locus(
-    chrom: str = Query(..., description="Y or chrY"),
+    chrom: str = Query(..., description="9, Y, chr9, chrY, …"),
     pos: int = Query(..., description="center position (bp)"),
     window_kb: float = Query(50.0, description="half-window in kb"),
     limit: int = Query(50, ge=1, le=500),
@@ -156,7 +157,7 @@ def api_gene(
         description="all | rare | common | lof | missense",
         pattern="^(all|rare|common|lof|missense)$",
     ),
-    chrom: Optional[str] = Query(None, description="Limit to chrom partition (e.g. Y)"),
+    chrom: Optional[str] = Query(None, description="Limit to chrom partition (e.g. 9, Y)"),
     limit: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
     try:
@@ -183,10 +184,10 @@ def api_info() -> dict[str, Any]:
         "ui": "/ui/?q=Y:2781489",
         "docs": "/docs",
         "health": "/health",
-        "variant": "/variant?q=Y:2781489",
-        "locus": "/locus?chrom=Y&pos=2781489&window_kb=10",
+        "variant": "/variant?q=9:22125515",
+        "locus": "/locus?chrom=9&pos=22125515&window_kb=10",
         "batch": "/batch?rsids=rs1,rs2",
-        "gene": "/gene?gene=SRY&mode=rare&chrom=Y",
+        "gene": "/gene?gene=ABO&mode=rare&chrom=9",
         "constraint": "/constraint?gene=BRCA1",
         "parquet_root": str(parquet_root()),
     }

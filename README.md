@@ -7,7 +7,9 @@ DuckDB + FastAPI over Spark/Hail-exported browser Parquet.
 Default root:
 
 ```text
+/data/agent/gnomad/data/chrom=9/*.parquet
 /data/agent/gnomad/data/chrom=Y/*.parquet
+/data/agent/gnomad/data/gnomad.v4.1.constraint_metrics.tsv
 ```
 
 Override:
@@ -52,15 +54,13 @@ uvicorn api.app:app --host 0.0.0.0 --port 8088
 
 ## Constraint file (optional, for /constraint)
 
-Repo includes `gnomad.v4.1.constraint_metrics.tsv.gz` (~17MB). The API auto-finds it
-(repo root, or `/data/agent/gnomad/data/…`, or `GNOMAD_CONSTRAINT_TSV`).
+Place on the API server (not in git — too large for `git pull`):
 
-On the API server after `git pull`, restart uvicorn — no separate download needed.
-Override path if desired:
-
-```bash
-export GNOMAD_CONSTRAINT_TSV=/path/to/gnomad.v4.1.constraint_metrics.tsv.gz
+```text
+/data/agent/gnomad/data/gnomad.v4.1.constraint_metrics.tsv
 ```
+
+Or: `export GNOMAD_CONSTRAINT_TSV=/path/to/file.tsv`
 
 ## Web UI
 
@@ -84,10 +84,11 @@ python .cursor/skills/ckb-gnomad/scripts/serve_web.py
 ```bash
 curl http://127.0.0.1:8088/health
 curl http://127.0.0.1:8088/chroms
-curl 'http://127.0.0.1:8088/variant?q=Y:2781489'
+curl 'http://127.0.0.1:8088/variant?q=9:22125515'
+curl 'http://127.0.0.1:8088/locus?chrom=9&pos=22125515&window_kb=10'
 curl 'http://127.0.0.1:8088/locus?chrom=Y&pos=2781489&window_kb=10'
 curl 'http://127.0.0.1:8088/batch?rsids=rs1,rs2'
-curl 'http://127.0.0.1:8088/gene?gene=SRY&mode=rare&chrom=Y'
+curl 'http://127.0.0.1:8088/gene?gene=ABO&mode=rare&chrom=9'
 curl 'http://127.0.0.1:8088/constraint?gene=BRCA1'
 ```
 
@@ -99,10 +100,10 @@ Default API base: `http://10.221.12.63:8923` (override with `GNOMAD_API_BASE` / 
 
 ```bash
 python .cursor/skills/ckb-gnomad/scripts/summary.py
-python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 'Y:2781489'
-python .cursor/skills/ckb-gnomad/scripts/locus_query.py --chr Y --pos 2781489 --window-kb 10
+python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py '9:22125515'
+python .cursor/skills/ckb-gnomad/scripts/locus_query.py --chr 9 --pos 22125515 --window-kb 10
 python .cursor/skills/ckb-gnomad/scripts/batch_lookup.py rs123 rs456
-python .cursor/skills/ckb-gnomad/scripts/gene_variants.py -g SRY --mode rare --chrom Y
+python .cursor/skills/ckb-gnomad/scripts/gene_variants.py -g ABO --mode rare --chrom 9
 python .cursor/skills/ckb-gnomad/scripts/constraint.py BRCA1
 # local demo sample:
 python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py rs429358 --local

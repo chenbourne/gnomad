@@ -36,11 +36,20 @@ def main() -> int:
         print(f"dataset:       {h.get('dataset')}")
         print(f"parquet_root:  {h.get('parquet_root')}")
         print(f"chroms:        {', '.join(c.get('chroms') or h.get('chroms') or [])}")
-        if h.get("chrY_variants") is not None:
+        counts = h.get("variant_counts") or {}
+        for chrom in h.get("chroms") or []:
+            n = counts.get(chrom)
+            if n is not None:
+                print(f"chr{chrom}_variants: {n:,}")
+        if h.get("total_variants") is not None:
+            print(f"total:         {h['total_variants']:,}")
+        elif h.get("chrY_variants") is not None:
             print(f"chrY_variants: {h.get('chrY_variants'):,}")
+        if h.get("constraint_present") is not None:
+            print(f"constraint:    {h.get('constraint_tsv')} ({'ok' if h.get('constraint_present') else 'missing'})")
         if h.get("error"):
             print(f"error:         {h['error']}")
-        print("# note: server currently exposes partitions listed above (often Y only)")
+        print("# partitions under GNOMAD_PARQUET_ROOT (e.g. chrom=9, chrom=Y)")
         return 0 if h.get("ok") else 1
 
     path = resolve_data(root=args.root or project_root(), data=args.data)

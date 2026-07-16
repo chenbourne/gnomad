@@ -222,7 +222,14 @@ async function loadHealth() {
     const h = await fetchJson("/health");
     const sub = $("#brand-sub");
     const chroms = (h.chroms || []).join(", ");
-    sub.textContent = `${h.dataset || "API"} · chrom=${chroms || "?"} · ${fmtInt(h.chrY_variants)} Y variants`;
+    const counts = h.variant_counts || {};
+    const countBits = (h.chroms || [])
+      .map((c) => {
+        const n = counts[c];
+        return n != null ? `chr${c}=${fmtInt(n)}` : `chr${c}=?`;
+      })
+      .join(" · ");
+    sub.textContent = `${h.dataset || "API"} · ${countBits || `chrom=${chroms || "?"}`}`;
     return h;
   } catch (err) {
     $("#brand-sub").textContent = `API offline: ${err.message}`;
@@ -309,7 +316,7 @@ function renderNearbyTable(chrom, pos, variants) {
 async function loadVariant(query, meta) {
   const page = $("#page");
   if (!query) {
-    page.innerHTML = `<p class="hint">Search a variant ID or rsID (e.g. Y-2781489-C-T). Current API has chrom=Y.</p>`;
+    page.innerHTML = `<p class="hint">Search a variant ID or rsID (e.g. 9-22125515-G-C, Y-2781489-C-T). Available chroms come from /health.</p>`;
     return;
   }
   page.innerHTML = `<p class="hint">Loading ${escapeHtml(query)}…</p>`;

@@ -76,6 +76,17 @@ def parquet_root() -> Path:
     return Path(os.environ.get("GNOMAD_PARQUET_ROOT", DEFAULT_PARQUET_ROOT)).expanduser()
 
 
+def chrom_sort_key(chrom: str) -> tuple[int, int]:
+    c = chrom.upper()
+    if c in ("X", "Y"):
+        return (2, 23 if c == "X" else 24)
+    if c in ("M", "MT"):
+        return (2, 25)
+    if chrom.isdigit():
+        return (1, int(chrom))
+    return (3, 0)
+
+
 def connect() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("SET threads TO 4")
@@ -87,10 +98,10 @@ def list_chroms(root: Optional[Path] = None) -> list[str]:
     if not root.is_dir():
         return []
     chroms = []
-    for p in sorted(root.iterdir()):
+    for p in root.iterdir():
         if p.is_dir() and p.name.startswith("chrom="):
             chroms.append(p.name.split("=", 1)[1])
-    return chroms
+    return sorted(chroms, key=chrom_sort_key)
 
 
 def normalize_chrom(chrom: str) -> str:
@@ -201,7 +212,9 @@ def parse_query(q: str) -> dict[str, Any]:
             }
         return {"type": "locus", "chrom": chrom, "pos": pos}
 
-    raise ValueError(f"Unrecognized query: {q!r} (rsID | Y-pos-ref-alt | Y:pos)")
+    raise ValueError(
+        f"Unrecognized query: {q!r} (rsID | 9-123-A-G | chr9:123 | 9:123)"
+    )
 
 
 def _loads_json(val: Any) -> Any:
@@ -310,6 +323,10 @@ def enrich_variant(d: dict[str, Any]) -> dict[str, Any]:
     d["joint_af"] = af(d.get("joint_ac"), d.get("joint_an"))
     d["exome_af"] = af(d.get("exome_ac"), d.get("exome_an"))
     d["genome_af"] = af(d.get("genome_ac"), d.get("genome_an"))
+
+    raw_chrom = d.get("chrom")
+    if raw_chrom is not None:
+        d["chrom"] = normalize_chrom(str(raw_chrom))
 
     joint_flags = _loads_json(d.pop("joint_flags_raw", None)) or []
     exome_filters = _loads_json(d.pop("exome_filters_raw", None)) or []
@@ -421,13 +438,15 @@ def lookup_variant(q: str, root: Optional[Path] = None) -> dict[str, Any]:
 
     if spec["type"] == "variant_id":
         vid = spec["variant_id"]
+        id_candidates = {vid, f"chr{vid}"}
+        placeholders = ", ".join("?" for _ in id_candidates)
         sql = f"""
           SELECT {sel}
           FROM read_parquet(?)
-          WHERE variant_id = ? OR variant_id = ?
+          WHERE variant_id IN ({placeholders})
           LIMIT 20
         """
-        hits = _fetch(con, sql, [glob, vid, f"chr{vid}"])
+        hits = _fetch(con, sql, [glob, *sorted(id_candidates)])
         return {
             "exact": bool(hits),
             "variants": hits,
@@ -455,7 +474,7 @@ def lookup_variant(q: str, root: Optional[Path] = None) -> dict[str, Any]:
         "message": (
             f"No variant found at chr{c}:{spec['pos']}. "
             "gnomAD only includes positions with an observed alternate allele. "
-            "Try a full variant ID (e.g. Y-2781489-C-T), an rsID, "
+            "Try a full variant ID (e.g. 9-22125515-G-C), an rsID, "
             "or browse nearby with /locus."
         ),
     }
@@ -603,23 +622,34 @@ def health(root: Optional[Path] = None) -> dict[str, Any]:
     root = root or parquet_root()
     chroms = list_chroms(root)
     ok = root.is_dir() and bool(chroms)
-    n = None
+    variant_counts: dict[str, Optional[int]] = {}
     err = None
-    if ok and "Y" in chroms:
+    if ok:
         try:
             con = connect()
-            g = chrom_glob("Y", root)
-            n = con.execute("SELECT COUNT(*) FROM read_parquet(?)", [g]).fetchone()[0]
+            for c in chroms:
+                try:
+                    g = chrom_glob(c, root)
+                    variant_counts[c] = con.execute(
+                        "SELECT COUNT(*) FROM read_parquet(?)", [g]
+                    ).fetchone()[0]
+                except Exception as exc:  # noqa: BLE001
+                    variant_counts[c] = None
+                    if err is None:
+                        err = f"chr{c}: {exc}"
         except Exception as exc:  # noqa: BLE001
             ok = False
             err = str(exc)
     from api.constraint import constraint_path
 
+    total = sum(n for n in variant_counts.values() if isinstance(n, int))
     out: dict[str, Any] = {
         "ok": ok,
         "parquet_root": str(root),
         "chroms": chroms,
-        "chrY_variants": n,
+        "variant_counts": variant_counts,
+        "total_variants": total if variant_counts else None,
+        "chrY_variants": variant_counts.get("Y"),
         "dataset": "gnomAD browser v4.1.1 (local parquet)",
         "constraint_tsv": str(constraint_path()),
         "constraint_present": constraint_path().is_file(),

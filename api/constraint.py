@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Optional, TextIO
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Prefer env, then server deploy path, then file checked into repo root.
+# Server deploy path (manual upload); override with GNOMAD_CONSTRAINT_TSV.
 _CANDIDATES = (
     Path("/data/agent/gnomad/data/gnomad.v4.1.constraint_metrics.tsv"),
     Path("/data/agent/gnomad/data/gnomad.v4.1.constraint_metrics.tsv.gz"),
@@ -99,8 +99,8 @@ def gene_constraint(gene: str) -> dict[str, Any]:
             "gene": gene,
             "message": (
                 f"Constraint file not found at {path}. "
-                "Place gnomad.v4.1.constraint_metrics.tsv(.gz) under the repo "
-                "or /data/agent/gnomad/data/ (or set GNOMAD_CONSTRAINT_TSV)."
+                "Place gnomad.v4.1.constraint_metrics.tsv under "
+                "/data/agent/gnomad/data/ (or set GNOMAD_CONSTRAINT_TSV)."
             ),
         }
     row = table.get(gene_u)

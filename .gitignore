@@ -12,3 +12,5 @@ env/
 parquet/
 *.tsv.bgz
 *.ht/
+gnomad.v4.1.constraint_metrics.tsv
+gnomad.v4.1.constraint_metrics.tsv.gz
