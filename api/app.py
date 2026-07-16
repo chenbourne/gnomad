@@ -7,9 +7,11 @@ Data layout (Hive partitions from Spark):
   default root: /data/agent/gnomad/data
 
 Run on the machine that has the parquet:
-  export GNOMAD_PARQUET_ROOT=/data/agent/gnomad/data   # optional if using default
+  python3 -m venv .venv && source .venv/bin/activate
   pip install -r api/requirements.txt
+  # optional: export GNOMAD_PARQUET_ROOT=/data/agent/gnomad/data
   uvicorn api.app:app --host 0.0.0.0 --port 8088
+  # or: bash api/start.sh
 
 Examples:
   curl http://127.0.0.1:8088/health

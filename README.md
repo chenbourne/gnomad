@@ -18,10 +18,35 @@ export GNOMAD_PARQUET_ROOT=/data/agent/gnomad/data
 
 ## Run API
 
+Always use a virtualenv before installing dependencies:
+
 ```bash
 git clone https://github.com/chenbourne/gnomad.git
 cd gnomad
+
+# 1) create & activate venv (Python >= 3.9 recommended)
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# 2) install deps into the venv
+pip install -U pip
 pip install -r api/requirements.txt
+
+# 3) start API
+uvicorn api.app:app --host 0.0.0.0 --port 8088
+```
+
+Or one-shot helper:
+
+```bash
+bash api/start.sh
+```
+
+Later sessions:
+
+```bash
+cd gnomad
+source .venv/bin/activate
 uvicorn api.app:app --host 0.0.0.0 --port 8088
 ```
 

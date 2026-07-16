@@ -59,8 +59,10 @@ python .cursor/skills/ckb-gnomad/scripts/serve_viewer.py
 
 # Parquet API（在有数据的服务器上启动；当前示例仅 chrom=Y）
 # 默认数据目录: /data/agent/gnomad/data  （可用 GNOMAD_PARQUET_ROOT 覆盖）
+# python3 -m venv .venv && source .venv/bin/activate
 # pip install -r api/requirements.txt
-# cd /path/to/ckb/gnomad && uvicorn api.app:app --host 0.0.0.0 --port 8088
+# uvicorn api.app:app --host 0.0.0.0 --port 8088
+# # 或: bash api/start.sh
 # curl http://127.0.0.1:8088/health
 # curl 'http://127.0.0.1:8088/variant?q=Y:2781489'
 # curl 'http://127.0.0.1:8088/locus?chrom=Y&pos=2781489&window_kb=10'
