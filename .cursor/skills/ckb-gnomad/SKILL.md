@@ -29,8 +29,8 @@ Override API: `export GNOMAD_API_BASE=http://host:port` or `--api URL`.
 | **概况 / 有哪些染色体 / API 是否通** | **`summary.py`** |
 | **查位点 / rsID / 频率** | **`lookup_variant.py`** |
 | 区域 ± kb | `locus_query.py --chr Y --pos P` |
+| 人群 AF 大表 | `lookup_variant.py`（API 返回 `ancestry` + `summary`） |
 | 本地样例（无 API） | 同上脚本加 **`--local`** |
-| 基因列表 / 人群表（仅本地样例） | `gene_variants.py` / `af_by_ancestry.py`（需 `--local`；API 尚未提供） |
 | 官网风格页（本地样例） | `serve_viewer.py`（读 var19.txt） |
 
 ## Default commands (API)
@@ -58,7 +58,7 @@ python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py rs429358 --local
 1. **Default to API** — do not use `--local` unless user asks for the sample file or API is down.
 2. Server currently has **chrY only** — queries like `1:2781489` / chr19 will fail until more `chrom=*` partitions exist; say so.
 3. Prefer example `Y:2781489` / `Y-2781489-C-T` when demonstrating.
-4. Report joint/exome/genome AC·AN·AF, CADD, caid from API JSON.
+4. Report **summary** (Exomes/Genomes/Total) and **ancestry** tables from API JSON when present.
 5. Do not call gnomAD public GraphQL for this skill.
 
 ## Dependencies

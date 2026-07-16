@@ -95,38 +95,69 @@ def fmt_score(x: float | None, digits: int = 3) -> str:
     return f"{x:.{digits}g}"
 
 
+def print_summary_table(summary: dict[str, Any] | None) -> None:
+    if not summary:
+        return
+    print("--- variant summary ---")
+    print(f"{'':28} {'Exomes':>12} {'Genomes':>12} {'Total':>12}")
+    blocks = [summary.get("exome"), summary.get("genome"), summary.get("joint")]
+    labels = ["Filters", "Allele Count", "Allele Number", "Allele Frequency", "FAF95", "Homozygotes"]
+    keys = ["filter_display", "ac", "an", "af", "faf95", "homozygote_count"]
+    for label, key in zip(labels, keys):
+        vals = []
+        for b in blocks:
+            if not b or not b.get("present"):
+                vals.append("—")
+            elif key == "af":
+                vals.append(fmt_af(b.get("af")))
+            elif key == "faf95":
+                vals.append(fmt_af(b.get("faf95")))
+            else:
+                v = b.get(key)
+                vals.append(str(v) if v is not None else "—")
+        print(f"{label:28} {vals[0]:>12} {vals[1]:>12} {vals[2]:>12}")
+
+
+def print_ancestry_table(rows: list[dict[str, Any]], title: str) -> None:
+    if not rows:
+        return
+    print(f"--- {title} ---")
+    print(f"{'Group':<28} {'AC':>8} {'AN':>10} {'Hom':>6} {'AF':>10}")
+    for r in rows:
+        print(
+            f"{r.get('label', r.get('id', '')):<28} "
+            f"{r.get('ac') or '—':>8} "
+            f"{r.get('an') or '—':>10} "
+            f"{r.get('homozygote_count') or '—':>6} "
+            f"{fmt_af(r.get('af')):>10}"
+        )
+
+
 def print_api_variant(v: dict[str, Any]) -> None:
     alleles = v.get("alleles") or []
     ref = alleles[0] if len(alleles) > 0 else "?"
     alt = alleles[1] if len(alleles) > 1 else "?"
     chrom = str(v.get("chrom") or "").removeprefix("chr")
     rsids = v.get("rsids") or []
-    print(f"variant_id:  {v.get('variant_id')}")
+    atype = "SNV" if len(ref) == 1 and len(alt) == 1 else "InDel"
+    print(f"variant:     {atype}:{v.get('variant_id')}(GRCh38)")
     print(f"locus:       chr{chrom}:{v.get('pos')}  {ref}>{alt}")
     print(f"rsids:       {', '.join(rsids) if rsids else 'NA'}")
     print(f"caid:        {v.get('caid') or 'NA'}")
+    if v.get("primary_gene") or v.get("consequence"):
+        bits = [v.get("primary_gene"), v.get("consequence"), v.get("hgvsc"), v.get("hgvsp")]
+        print(f"gene/cons:   {' · '.join(x for x in bits if x)}")
+    pred = v.get("predictors") or {}
     print(
-        f"joint:       AC={v.get('joint_ac')}  AN={v.get('joint_an')}  "
-        f"AF={fmt_af(v.get('joint_af'))}  hom={v.get('joint_hom')}"
+        f"predictors:  CADD={fmt_score(pred.get('cadd_phred') or v.get('cadd_phred'))}  "
+        f"REVEL={fmt_score(pred.get('revel_max') or v.get('revel_max'))}  "
+        f"SpliceAI={fmt_score(pred.get('spliceai_ds_max') or v.get('spliceai_ds_max'))}"
     )
-    print(
-        f"grpmax:      AF={fmt_af(v.get('joint_grpmax_af'))}  "
-        f"anc={v.get('joint_grpmax_anc') or 'NA'}"
-    )
-    print(
-        f"faf95_max:   {fmt_af(v.get('joint_faf95_max'))}  "
-        f"anc={v.get('joint_faf95_anc') or 'NA'}"
-    )
-    print(
-        f"exome:       AC={v.get('exome_ac')}  AN={v.get('exome_an')}  "
-        f"AF={fmt_af(v.get('exome_af'))}  hom={v.get('exome_hom')}"
-    )
-    print(
-        f"genome:      AC={v.get('genome_ac')}  AN={v.get('genome_an')}  "
-        f"AF={fmt_af(v.get('genome_af'))}  hom={v.get('genome_hom')}"
-    )
-    print(
-        f"predictors:  CADD={fmt_score(v.get('cadd_phred'))}  "
-        f"REVEL={fmt_score(v.get('revel_max'))}  "
-        f"SpliceAI={fmt_score(v.get('spliceai_ds_max'))}"
-    )
+    print_summary_table(v.get("summary"))
+    anc = v.get("ancestry") or {}
+    for slice_name, title in (
+        ("joint", "ancestry AF (Total)"),
+        ("exome", "ancestry AF (Exomes)"),
+        ("genome", "ancestry AF (Genomes)"),
+    ):
+        print_ancestry_table(anc.get(slice_name) or [], title)

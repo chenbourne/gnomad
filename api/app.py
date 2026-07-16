@@ -26,7 +26,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.db import health, list_chroms, locus_query, lookup_variant, parquet_root
+from api.db import health, list_chroms, locus_query, lookup_variant, parquet_root, schema_for_chrom
 
 app = FastAPI(
     title="gnomAD local API",
@@ -51,6 +51,16 @@ def api_health() -> dict[str, Any]:
 def api_chroms() -> dict[str, Any]:
     root = parquet_root()
     return {"parquet_root": str(root), "chroms": list_chroms(root)}
+
+
+@app.get("/schema")
+def api_schema(chrom: str = Query("Y", description="chrom partition to describe")) -> dict[str, Any]:
+    try:
+        return schema_for_chrom(chrom)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/variant")

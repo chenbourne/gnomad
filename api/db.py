@@ -1,6 +1,7 @@
 """DuckDB access for Spark/Hail-exported gnomAD browser Parquet (dotted column names)."""
 from __future__ import annotations
 
+import json
 import os
 import re
 from functools import lru_cache
@@ -9,9 +10,11 @@ from typing import Any, Optional
 
 import duckdb
 
+from api.ancestry import af, parse_ancestry_groups
+
 DEFAULT_PARQUET_ROOT = Path("/data/agent/gnomad/data")
 
-# Preferred response fields → possible Parquet column names (Spark-flattened)
+# Scalar fields: alias -> candidate column names (first match wins)
 FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
     "chrom": ("locus.contig",),
     "pos": ("locus.position",),
@@ -22,19 +25,49 @@ FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
     "cadd_phred": ("in_silico_predictors.cadd.phred",),
     "revel_max": ("in_silico_predictors.revel_max",),
     "spliceai_ds_max": ("in_silico_predictors.spliceai_ds_max",),
+    "sift_max": ("in_silico_predictors.sift_max",),
+    "polyphen_max": ("in_silico_predictors.polyphen_max",),
+    "phylop": ("in_silico_predictors.phylop",),
+    # joint
     "joint_ac": ("joint.freq.all.ac",),
     "joint_an": ("joint.freq.all.an",),
     "joint_hom": ("joint.freq.all.homozygote_count",),
     "joint_faf95_max": ("joint.fafmax.faf95_max",),
     "joint_faf95_anc": ("joint.fafmax.faf95_max_gen_anc",),
+    "joint_faf99_max": ("joint.fafmax.faf99_max",),
     "joint_grpmax_af": ("joint.grpmax.AF",),
     "joint_grpmax_anc": ("joint.grpmax.gen_anc",),
+    "joint_grpmax_ac": ("joint.grpmax.AC",),
+    "joint_grpmax_an": ("joint.grpmax.AN",),
+    # exome
     "exome_ac": ("exome.freq.all.ac",),
     "exome_an": ("exome.freq.all.an",),
     "exome_hom": ("exome.freq.all.homozygote_count",),
+    "exome_faf95_max": (
+        "exome.fafmax.gnomad.faf95_max",
+        "exome.fafmax.faf95_max",
+    ),
+    "exome_faf95_anc": (
+        "exome.fafmax.gnomad.faf95_max_gen_anc",
+        "exome.fafmax.faf95_max_gen_anc",
+    ),
+    # genome
     "genome_ac": ("genome.freq.all.ac",),
     "genome_an": ("genome.freq.all.an",),
     "genome_hom": ("genome.freq.all.homozygote_count",),
+    "genome_faf95_max": ("genome.fafmax.faf95_max",),
+    "genome_faf95_anc": ("genome.fafmax.faf95_max_gen_anc",),
+}
+
+# JSON blobs via to_json() for nested arrays/structs
+JSON_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "joint_ancestry_raw": ("joint.freq.all.ancestry_groups",),
+    "exome_ancestry_raw": ("exome.freq.all.ancestry_groups",),
+    "genome_ancestry_raw": ("genome.freq.all.ancestry_groups",),
+    "joint_flags_raw": ("joint.flags",),
+    "exome_filters_raw": ("exome.filters",),
+    "genome_filters_raw": ("genome.filters",),
+    "transcript_raw": ("transcript_consequences",),
 }
 
 
@@ -79,21 +112,51 @@ def chrom_glob(chrom: str, root: Optional[Path] = None) -> str:
 def _columns_for_glob(glob: str) -> frozenset[str]:
     con = connect()
     rows = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{glob}')").fetchall()
-    # rows: (column_name, column_type, ...)
     return frozenset(r[0] for r in rows)
+
+
+def schema_for_chrom(chrom: str, root: Optional[Path] = None) -> dict[str, Any]:
+    glob = chrom_glob(chrom, root)
+    cols = sorted(_columns_for_glob(glob))
+    freq_cols = [c for c in cols if "freq" in c or "ancestry" in c]
+    return {
+        "chrom": normalize_chrom(chrom),
+        "glob": glob,
+        "n_columns": len(cols),
+        "columns": cols,
+        "freq_related": freq_cols[:80],
+        "mapped_scalars": {k: _pick_col(cols, v) for k, v in FIELD_CANDIDATES.items()},
+        "mapped_json": {k: _pick_col(cols, v) for k, v in JSON_CANDIDATES.items()},
+    }
+
+
+def _pick_col(available: frozenset[str] | list[str], candidates: tuple[str, ...]) -> str | None:
+    avail = available if isinstance(available, frozenset) else frozenset(available)
+    for c in candidates:
+        if c in avail:
+            return c
+    return None
+
+
+def _quote_col(col: str) -> str:
+    return f'"{col}"' if "." in col else col
 
 
 def _select_sql(glob: str) -> str:
     available = _columns_for_glob(glob)
     parts = []
     for alias, candidates in FIELD_CANDIDATES.items():
-        col = next((c for c in candidates if c in available), None)
+        col = _pick_col(available, candidates)
         if col is None:
             parts.append(f"NULL AS {alias}")
-        elif "." in col:
-            parts.append(f'"{col}" AS {alias}')
         else:
-            parts.append(f"{col} AS {alias}")
+            parts.append(f"{_quote_col(col)} AS {alias}")
+    for alias, candidates in JSON_CANDIDATES.items():
+        col = _pick_col(available, candidates)
+        if col is None:
+            parts.append(f"NULL AS {alias}")
+        else:
+            parts.append(f"to_json({_quote_col(col)}) AS {alias}")
     return ",\n  ".join(parts)
 
 
@@ -140,26 +203,173 @@ def parse_query(q: str) -> dict[str, Any]:
     raise ValueError(f"Unrecognized query: {q!r} (rsID | Y-pos-ref-alt | Y:pos)")
 
 
-def _af(ac: Any, an: Any) -> Optional[float]:
-    if ac is None or an is None or an == 0:
+def _loads_json(val: Any) -> Any:
+    if val is None:
         return None
-    return float(ac) / float(an)
+    if isinstance(val, (list, dict)):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except json.JSONDecodeError:
+            return None
+    return None
 
 
-def row_to_dict(row: tuple, columns: list[str]) -> dict[str, Any]:
-    d = dict(zip(columns, row))
+def _filter_display(filters: list | None, flags: list | None) -> tuple[str, str]:
+    flags = flags or []
+    filters = filters or []
+    if flags:
+        pretty = []
+        for f in flags:
+            if f == "discrepant_frequencies":
+                pretty.append("Discrepant frequencies")
+            else:
+                pretty.append(str(f).replace("_", " ").capitalize())
+        return ", ".join(pretty), "warning"
+    if filters:
+        return ", ".join(str(x) for x in filters), "fail"
+    return "Pass", "pass"
+
+
+def _summary_block(
+    label: str,
+    ac: Any,
+    an: Any,
+    hom: Any,
+    faf95: Any,
+    faf95_anc: Any,
+    filters: list | None = None,
+    flags: list | None = None,
+    present: bool = True,
+) -> dict[str, Any]:
+    if not present and ac is None and an is None:
+        return {
+            "label": label,
+            "present": False,
+            "filter_display": "—",
+            "filter_kind": "fail",
+            "ac": None,
+            "an": None,
+            "af": None,
+            "faf95": None,
+            "homozygote_count": None,
+        }
+    disp, kind = _filter_display(filters, flags)
+    return {
+        "label": label,
+        "present": True,
+        "filters": filters or [],
+        "flags": flags or [],
+        "filter_display": disp,
+        "filter_kind": kind,
+        "ac": ac,
+        "an": an,
+        "af": af(ac, an),
+        "faf95": faf95,
+        "faf95_anc": faf95_anc,
+        "homozygote_count": hom,
+    }
+
+
+def _parse_transcript(raw: Any) -> dict[str, Any]:
+    tc = _loads_json(raw)
+    if not isinstance(tc, list) or not tc:
+        return {}
+    rows = []
+    for t in tc:
+        if isinstance(t, dict):
+            rows.append(t)
+        elif hasattr(t, "_asdict"):
+            rows.append(t._asdict())
+    if not rows:
+        return {}
+    canon = [t for t in rows if t.get("is_canonical")]
+    pick = canon[0] if canon else rows[0]
+    genes = sorted({t.get("gene_symbol") for t in rows if t.get("gene_symbol")})
+    return {
+        "genes": genes,
+        "primary_gene": genes[0] if genes else None,
+        "consequence": pick.get("major_consequence")
+        or (pick.get("consequence_terms") or [None])[0],
+        "hgvsc": pick.get("hgvsc"),
+        "hgvsp": pick.get("hgvsp"),
+    }
+
+
+def enrich_variant(d: dict[str, Any]) -> dict[str, Any]:
+    """Add browser-like summary + ancestry tables."""
     for k in ("rsids", "alleles"):
         v = d.get(k)
         if v is None:
             d[k] = []
-        elif isinstance(v, (list, tuple)):
-            d[k] = list(v)
-        else:
-            d[k] = [v]
-    d["joint_af"] = _af(d.get("joint_ac"), d.get("joint_an"))
-    d["exome_af"] = _af(d.get("exome_ac"), d.get("exome_an"))
-    d["genome_af"] = _af(d.get("genome_ac"), d.get("genome_an"))
+        elif not isinstance(v, list):
+            d[k] = list(v) if isinstance(v, (tuple, set)) else [v]
+
+    d["joint_af"] = af(d.get("joint_ac"), d.get("joint_an"))
+    d["exome_af"] = af(d.get("exome_ac"), d.get("exome_an"))
+    d["genome_af"] = af(d.get("genome_ac"), d.get("genome_an"))
+
+    joint_flags = _loads_json(d.pop("joint_flags_raw", None)) or []
+    exome_filters = _loads_json(d.pop("exome_filters_raw", None)) or []
+    genome_filters = _loads_json(d.pop("genome_filters_raw", None)) or []
+
+    ancestry = {
+        "joint": parse_ancestry_groups(_loads_json(d.pop("joint_ancestry_raw", None))),
+        "exome": parse_ancestry_groups(_loads_json(d.pop("exome_ancestry_raw", None))),
+        "genome": parse_ancestry_groups(_loads_json(d.pop("genome_ancestry_raw", None))),
+    }
+    d["ancestry"] = ancestry
+
+    d["summary"] = {
+        "exome": _summary_block(
+            "Exomes",
+            d.get("exome_ac"),
+            d.get("exome_an"),
+            d.get("exome_hom"),
+            d.get("exome_faf95_max"),
+            d.get("exome_faf95_anc"),
+            filters=exome_filters if isinstance(exome_filters, list) else None,
+            present=d.get("exome_ac") is not None or d.get("exome_an") is not None,
+        ),
+        "genome": _summary_block(
+            "Genomes",
+            d.get("genome_ac"),
+            d.get("genome_an"),
+            d.get("genome_hom"),
+            d.get("genome_faf95_max"),
+            d.get("genome_faf95_anc"),
+            filters=genome_filters if isinstance(genome_filters, list) else None,
+            present=d.get("genome_ac") is not None or d.get("genome_an") is not None,
+        ),
+        "joint": _summary_block(
+            "Total",
+            d.get("joint_ac"),
+            d.get("joint_an"),
+            d.get("joint_hom"),
+            d.get("joint_faf95_max"),
+            d.get("joint_faf95_anc"),
+            flags=joint_flags if isinstance(joint_flags, list) else None,
+            present=d.get("joint_ac") is not None or d.get("joint_an") is not None,
+        ),
+    }
+
+    tx = _parse_transcript(d.pop("transcript_raw", None))
+    d.update({k: v for k, v in tx.items() if v is not None})
+
+    d["predictors"] = {
+        "cadd_phred": d.get("cadd_phred"),
+        "revel_max": d.get("revel_max"),
+        "spliceai_ds_max": d.get("spliceai_ds_max"),
+        "sift_max": d.get("sift_max"),
+        "polyphen_max": d.get("polyphen_max"),
+        "phylop": d.get("phylop"),
+    }
     return d
+
+
+def row_to_dict(row: tuple, columns: list[str]) -> dict[str, Any]:
+    return enrich_variant(dict(zip(columns, row)))
 
 
 def _fetch(con: duckdb.DuckDBPyConnection, sql: str, params: Optional[list[Any]] = None) -> list[dict[str, Any]]:
@@ -254,6 +464,12 @@ def health(root: Optional[Path] = None) -> dict[str, Any]:
         "chroms": chroms,
         "chrY_variants": n,
         "dataset": "gnomAD browser v4.1.1 (local parquet)",
+        "features": [
+            "summary (exome/genome/joint)",
+            "ancestry tables",
+            "predictors",
+            "transcript (when column present)",
+        ],
     }
     if err:
         out["error"] = err
