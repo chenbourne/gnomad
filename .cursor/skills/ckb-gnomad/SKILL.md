@@ -31,7 +31,8 @@ Override API: `export GNOMAD_API_BASE=http://host:port` or `--api URL`.
 | 区域 ± kb | `locus_query.py --chr Y --pos P` |
 | 人群 AF 大表 | `lookup_variant.py`（API 返回 `ancestry` + `summary`） |
 | 本地样例（无 API） | 同上脚本加 **`--local`** |
-| 官网风格页（本地样例） | `serve_viewer.py`（读 var19.txt） |
+| **官网风格 Web（打 API）** | 服务器 `http://10.221.12.63:8923/ui/?q=Y:2781489` 或本地 `serve_web.py` |
+| 本地样例页（var19） | `serve_viewer.py` |
 
 ## Default commands (API)
 
@@ -51,6 +52,11 @@ python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 'Y:2781489' --api htt
 
 # 回退本地 var19.txt
 python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py rs429358 --local
+
+# Web UI（打远程 API；服务器拉新代码后也可直接开 /ui/）
+# http://10.221.12.63:8923/ui/?q=Y:2781489
+python .cursor/skills/ckb-gnomad/scripts/serve_web.py
+# → http://127.0.0.1:8766/?q=Y:2781489
 ```
 
 ## Agent checklist

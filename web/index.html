@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gnomAD · variant browser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">g</span>
+      <div>
+        <div class="brand-name">gnomAD <span class="muted">browser</span></div>
+        <div class="brand-sub" id="brand-sub">loading API…</div>
+      </div>
+    </div>
+    <form id="search-form" class="search" autocomplete="off">
+      <label class="sr-only" for="q">Query</label>
+      <input id="q" name="q" type="search" placeholder="Y:2781489 · Y-2781489-C-T · rsID" />
+      <button type="submit">Search</button>
+    </form>
+  </header>
+
+  <main class="wrap">
+    <section class="page" id="page">
+      <p class="hint">Search a variant (current data: chrom=Y).</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

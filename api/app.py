@@ -21,12 +21,17 @@ Examples:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.db import health, list_chroms, locus_query, lookup_variant, parquet_root, schema_for_chrom
+
+WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 
 app = FastAPI(
     title="gnomAD local API",
@@ -101,13 +106,23 @@ def api_locus(
     }
 
 
-@app.get("/")
-def root() -> dict[str, Any]:
+@app.get("/api")
+def api_info() -> dict[str, Any]:
     return {
         "service": "gnomAD local API",
+        "ui": "/ui/?q=Y:2781489",
         "docs": "/docs",
         "health": "/health",
         "variant": "/variant?q=Y:2781489",
         "locus": "/locus?chrom=Y&pos=2781489&window_kb=10",
         "parquet_root": str(parquet_root()),
     }
+
+
+@app.get("/")
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/ui/?q=Y:2781489")
+
+
+if WEB_DIR.is_dir():
+    app.mount("/ui", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")

@@ -50,6 +50,23 @@ source .venv/bin/activate
 uvicorn api.app:app --host 0.0.0.0 --port 8088
 ```
 
+## Web UI
+
+After restart, open:
+
+```text
+http://<host>:8923/ui/?q=Y:2781489
+```
+
+Root `/` redirects to the UI. API JSON index: `/api`.
+
+Local preview (points browser at remote API):
+
+```bash
+python .cursor/skills/ckb-gnomad/scripts/serve_web.py
+# http://127.0.0.1:8766/?q=Y:2781489
+```
+
 ## Endpoints
 
 ```bash
