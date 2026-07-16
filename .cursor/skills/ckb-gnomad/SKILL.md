@@ -1,84 +1,72 @@
 ---
 name: ckb-gnomad
 description: >-
-  gnomAD variant frequency toolkit for this repo (sample: var19.txt). Use for
-  rsID/variant lookup, gene variant lists, locus windows, ancestry AF, CADD/REVEL,
-  joint AF/grpmax/FAF, local gnomAD-style browser page (serve_viewer), or gnomAD
-  questions on chr19 sample data. Scripts under .cursor/skills/ckb-gnomad/scripts/.
-  Do not load nested JSON TSV ad-hoc in pandas.
+  gnomAD variant frequency toolkit. Default: call remote Parquet API
+  (http://10.221.12.63:8923). Use for rsID/variant lookup, locus windows, AF,
+  API health/chroms, or --local var19.txt demo. Scripts under
+  .cursor/skills/ckb-gnomad/scripts/. Do not scrape gnomAD GraphQL, do not invent
+  ad-hoc pandas over TSV.
 ---
 
-# gnomAD variant toolkit (`var19.txt`)
+# gnomAD variant toolkit (API-first)
 
 **Scripts:** `.cursor/skills/ckb-gnomad/scripts/`  
 **Run from project root:** this repo (`.../ckb/gnomad`).
 
-## Data
+## Data backend
 
-| File | Notes |
-|------|--------|
-| **`var19.txt`** (default) | chr19 sample export: TSV + nested JSON (`joint` / VEP / predictors) |
+| Mode | How | Notes |
+|------|-----|--------|
+| **API (default)** | `http://10.221.12.63:8923` | Parquet on server (`/data/agent/gnomad/data`); currently **chrY** |
+| Local demo | `--local` → `var19.txt` | chr19 sample only |
 
-Full-genome release not wired yet — same scripts will take `--data` later.
+Override API: `export GNOMAD_API_BASE=http://host:port` or `--api URL`.
 
-## Intent → script (read this first)
+## Intent → script
 
-| 用户说法 | 必须用的脚本 |
-|----------|----------------|
-| **概况 / 有多少变异 / summary** | **`summary.py`** |
-| **rs429358 / 这个 SNP 频率 / lookup** | **`lookup_variant.py`** |
-| APOE 有哪些变异 / missense | `gene_variants.py -g APOE` |
-| chr19:pos ± kb / 区域 | `locus_query.py --chr 19 --pos P` |
-| EAS/AFR 等人群 AF | `af_by_ancestry.py --rsid …` |
-| **官网风格变体页 / 浏览器页面** | **`serve_viewer.py`** |
+| 用户说法 | 脚本 |
+|----------|------|
+| **概况 / 有哪些染色体 / API 是否通** | **`summary.py`** |
+| **查位点 / rsID / 频率** | **`lookup_variant.py`** |
+| 区域 ± kb | `locus_query.py --chr Y --pos P` |
+| 本地样例（无 API） | 同上脚本加 **`--local`** |
+| 基因列表 / 人群表（仅本地样例） | `gene_variants.py` / `af_by_ancestry.py`（需 `--local`；API 尚未提供） |
+| 官网风格页（本地样例） | `serve_viewer.py`（读 var19.txt） |
 
-## Default commands
+## Default commands (API)
 
 ```bash
-# 概况
+# 概况（染色体分区、chrY 条数）
 python .cursor/skills/ckb-gnomad/scripts/summary.py
 
-# 按 rsID / variant_id / chrom:pos 查询（加 -v 看转录本）
-python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py rs429358
-python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 19-44908684-T-C -v
-python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 19:44908684
+# 查位点（当前服务有 chrom=Y）
+python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 'Y:2781489'
+python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py Y-2781489-C-T
 
-# 按基因
-python .cursor/skills/ckb-gnomad/scripts/gene_variants.py -g APOE
-python .cursor/skills/ckb-gnomad/scripts/gene_variants.py -g APOE --consequence missense
+# 窗口
+python .cursor/skills/ckb-gnomad/scripts/locus_query.py --chr Y --pos 2781489 --window-kb 10
 
-# 窗口（默认 ±50 kb）
-python .cursor/skills/ckb-gnomad/scripts/locus_query.py --chr 19 --pos 44908684 --window-kb 50
+# 指定 API
+python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 'Y:2781489' --api http://10.221.12.63:8923
 
-# 人群频率
-python .cursor/skills/ckb-gnomad/scripts/af_by_ancestry.py --rsid rs429358
-
-# 本地变体浏览器（对齐 gnomAD 官网 Exomes/Genomes/Total + 人群表）
-python .cursor/skills/ckb-gnomad/scripts/serve_viewer.py
-# → http://127.0.0.1:8765/?q=19-44908684-T-C
-
-# Parquet API（在有数据的服务器上启动；当前示例仅 chrom=Y）
-# 默认数据目录: /data/agent/gnomad/data  （可用 GNOMAD_PARQUET_ROOT 覆盖）
-# python3 -m venv .venv && source .venv/bin/activate
-# pip install -r api/requirements.txt
-# uvicorn api.app:app --host 0.0.0.0 --port 8088
-# # 或: bash api/start.sh
-# curl http://127.0.0.1:8088/health
-# curl 'http://127.0.0.1:8088/variant?q=Y:2781489'
-# curl 'http://127.0.0.1:8088/locus?chrom=Y&pos=2781489&window_kb=10'
+# 回退本地 var19.txt
+python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py rs429358 --local
 ```
 
 ## Agent checklist
 
-1. Match intent with the table — **do not invent one-off pandas/json parsing** if a script exists.
-2. Default data: `var19.txt` at repo root. Override with `--data PATH` if needed.
-3. Report key fields: variant_id, rsids, genes, consequence, joint AF, grpmax, predictors.
-4. Sample is chr19-only and tiny — say so if a query misses (other chromosomes / absent variants).
+1. **Default to API** — do not use `--local` unless user asks for the sample file or API is down.
+2. Server currently has **chrY only** — queries like `1:2781489` / chr19 will fail until more `chrom=*` partitions exist; say so.
+3. Prefer example `Y:2781489` / `Y-2781489-C-T` when demonstrating.
+4. Report joint/exome/genome AC·AN·AF, CADD, caid from API JSON.
+5. Do not call gnomAD public GraphQL for this skill.
 
 ## Dependencies
 
-Python 3.10+ stdlib only (`json`, `argparse`).
+- API mode: Python 3.10+ **stdlib only** (`urllib`)
+- Local mode: stdlib (`json`)
+- Server API stack: see repo `api/` (venv + `api/requirements.txt`)
 
-## Out of scope (this skill)
+## Out of scope
 
-ClinVar pathogenicity calls, VEP re-annotation, full gnomAD download/ETL (later), Hail pipelines.
+ClinVar calls, VEP re-annotation, Hail ETL, gene-constraint endpoints (not in API yet).

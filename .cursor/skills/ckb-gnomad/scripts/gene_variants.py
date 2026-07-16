@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""List gnomAD variants overlapping a gene symbol."""
+"""List gnomAD variants overlapping a gene symbol (local var19.txt only; API has no /gene yet)."""
 from __future__ import annotations
 
 import argparse

@@ -61,6 +61,16 @@ curl 'http://127.0.0.1:8088/locus?chrom=Y&pos=2781489&window_kb=10'
 
 Docs: `http://127.0.0.1:8088/docs`
 
-## Cursor skill
+## Cursor skill (API client)
 
-See `.cursor/skills/ckb-gnomad/` for local `var19.txt` toolkit (demo). API is the shareable path for full Parquet on the server.
+Default API base: `http://10.221.12.63:8923` (override with `GNOMAD_API_BASE` / `--api`).
+
+```bash
+python .cursor/skills/ckb-gnomad/scripts/summary.py
+python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py 'Y:2781489'
+python .cursor/skills/ckb-gnomad/scripts/locus_query.py --chr Y --pos 2781489 --window-kb 10
+# local demo sample:
+python .cursor/skills/ckb-gnomad/scripts/lookup_variant.py rs429358 --local
+```
+
+See `.cursor/skills/ckb-gnomad/SKILL.md`.

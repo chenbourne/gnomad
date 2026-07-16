@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Look up a gnomAD variant by rsID, variant_id, or chrom:pos[:ref:alt]."""
+"""Look up a gnomAD variant via API (default) or local var19.txt (--local)."""
 from __future__ import annotations
 
 import argparse
 import sys
 
+from api_client import (
+    add_api_args,
+    api_base,
+    print_api_variant,
+    use_api,
+    variant as api_variant,
+)
 from gnomad_io import (
     MAIN_ANC,
     Variant,
@@ -24,11 +31,11 @@ def _parse_query(q: str) -> dict:
     low = q.lower()
     if low.startswith("rs") and low[2:].isdigit():
         return {"rsid": q}
-    if (q.count("-") >= 3 and q[0].isdigit()) or q.upper().startswith("CHR"):
-        # 19-44908684-T-C
+    if (q.count("-") >= 3 and (q[0].isdigit() or q[0].upper() in "XYM")) or q.upper().startswith(
+        "CHR"
+    ):
         return {"variant_id": q.removeprefix("chr").removeprefix("CHR")}
     if ":" in q:
-        # chr19:44908684 or 19:44908684:T:C
         parts = q.replace("chr", "").replace("CHR", "").split(":")
         out: dict = {"chrom": parts[0], "pos": int(parts[1])}
         if len(parts) >= 4:
@@ -51,7 +58,7 @@ def _match(v: Variant, spec: dict) -> bool:
     return True
 
 
-def _print_variant(v: Variant, verbose: bool) -> None:
+def _print_local(v: Variant, verbose: bool) -> None:
     print(f"variant_id:  {v.variant_id}")
     print(f"locus:       chr{v.chrom}:{v.pos}  {v.ref}>{v.alt}")
     print(f"rsids:       {', '.join(v.rsids) if v.rsids else 'NA'}")
@@ -73,56 +80,62 @@ def _print_variant(v: Variant, verbose: bool) -> None:
         f"REVEL={fmt_score(v.revel_max)}  "
         f"SpliceAI={fmt_score(v.spliceai_ds_max)}"
     )
-    print(f"source:      exome={v.has_exome}  genome={v.has_genome}")
-    if v.flags_joint:
-        print(f"flags:       {', '.join(v.flags_joint)}")
-    if v.filters_exome or v.filters_genome:
-        print(
-            f"filters:     exome={','.join(v.filters_exome) or 'PASS'}  "
-            f"genome={','.join(v.filters_genome) or 'PASS'}"
-        )
-    # ancestry AF (main groups)
     ancs = [(a, v.ancestry_af[a]) for a in MAIN_ANC if a in v.ancestry_af]
     if ancs:
         print("--- ancestry AF (joint) ---")
         for aid, af in ancs:
             print(f"  {aid:10} {fmt_af(af)}")
     if verbose:
-        print("--- transcript consequences (canonical first) ---")
+        print("--- transcript consequences ---")
         tc = v.raw.get("transcript_consequences") or []
         if isinstance(tc, list):
-            rows = sorted(
-                [t for t in tc if isinstance(t, dict)],
-                key=lambda t: (0 if t.get("is_canonical") else 1, t.get("gene_symbol") or ""),
-            )
-            for t in rows[:20]:
+            for t in tc[:20]:
+                if not isinstance(t, dict):
+                    continue
                 print(
                     f"  {t.get('gene_symbol') or '?'}\t"
-                    f"{t.get('major_consequence') or ','.join(t.get('consequence_terms') or [])}\t"
-                    f"{'CANON' if t.get('is_canonical') else ''}\t"
+                    f"{t.get('major_consequence') or ''}\t"
                     f"{t.get('hgvsc') or ''}\t{t.get('hgvsp') or ''}"
                 )
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
+    add_api_args(p)
     add_data_args(p)
     p.add_argument("query", help="rsID | variant_id | chrom:pos[:ref:alt]")
-    p.add_argument("-v", "--verbose", action="store_true", help="Show transcript rows")
+    p.add_argument("-v", "--verbose", action="store_true", help="Local mode: transcript rows")
     args = p.parse_args()
+
+    if use_api(args):
+        base = api_base(args.api)
+        try:
+            data = api_variant(args.query, base=base)
+        except RuntimeError as exc:
+            print(f"# API error ({base}): {exc}", file=sys.stderr)
+            return 1
+        hits = data.get("variants") or []
+        print(f"# query={args.query!r}  api={base}  hits={len(hits)}")
+        if not hits:
+            print("No match.")
+            return 1
+        for i, v in enumerate(hits):
+            if i:
+                print("---")
+            print_api_variant(v)
+        return 0
 
     spec = _parse_query(args.query)
     path = resolve_data(root=args.root or project_root(), data=args.data)
     hits = [v for v in iter_variants(path) if _match(v, spec)]
-
     print(f"# query={args.query!r}  file={path.name}  hits={len(hits)}")
     if not hits:
-        print("No match in current data file.")
+        print("No match in local data file.")
         return 1
     for i, v in enumerate(hits):
         if i:
             print("---")
-        _print_variant(v, verbose=args.verbose)
+        _print_local(v, verbose=args.verbose)
     return 0
 
 
